@@ -11,16 +11,12 @@ import nl.toefel.blog.aggregatefunctions.dto.CommentDto
 import nl.toefel.blog.aggregatefunctions.dto.UserPopularityScore
 import nl.toefel.blog.aggregatefunctions.dto.UserStatistic
 import org.jetbrains.exposed.sql.Database
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.minus
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.sum
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.plus
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.div
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.minus
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.times
-import org.jetbrains.exposed.sql.avg
 
 /**
  * Starts an in-memory H2 database, creates the schema and loads some test data and exposes a HTTP API
@@ -49,9 +45,9 @@ class Router(val port: Int) {
         app.start(port)
         println("started on port $port, visit:\n" +
             "http://localhost:8080/comments \n" +
-            "http://localhost:8080/user-statistics " +
+            "http://localhost:8080/user-statistics \n" +
             "http://localhost:8080/user-popularity ")
-            return this
+        return this
     }
 
     fun listComments(ctx: Context) {
@@ -95,19 +91,24 @@ class Router(val port: Int) {
     fun userPopularity(ctx: Context) {
         val userPopularityScores = transaction {
 
-val commentPopularityScore = CommentTable.likes.times(2).minus(CommentTable.dislikes).div(2)
+            val commentPopularityScore = CommentTable.likes - CommentTable.dislikes
 
-CommentTable
-    .innerJoin(UserTable)
-    .slice(UserTable.name, commentPopularityScore.avg(2))
-    .selectAll()
-    .groupBy(UserTable.name)
-    .map { row ->
-        UserPopularityScore(
-            fromUser = row[UserTable.name],
-            popularityScore = row[commentPopularityScore.sum()] ?: 0L
-        )
-    }
+            CommentTable
+                .innerJoin(UserTable)
+                .slice(UserTable.name, commentPopularityScore.sum())
+                .selectAll()
+                .groupBy(UserTable.name)
+                .map { row ->
+                    println("""
+                        user = ${row[UserTable.name]},
+                        popularityScore = ${row[commentPopularityScore.sum()] ?: 0L}
+                    """.trimIndent())
+
+                    UserPopularityScore(
+                        fromUser = row[UserTable.name],
+                        popularityScore = row[commentPopularityScore.sum()] ?: 0L
+                    )
+                }
         }
 
         ctx.json(userPopularityScores)
